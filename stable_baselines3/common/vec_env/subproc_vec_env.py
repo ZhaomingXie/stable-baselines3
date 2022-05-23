@@ -54,6 +54,15 @@ def _worker(
                 remote.send(setattr(env, data[0], data[1]))
             elif cmd == "is_wrapped":
                 remote.send(is_wrapped(env, data))
+            elif cmd == "observe":
+                observation = env.observe()
+                remote.send(observation)
+            elif cmd == "reset_time_limit":
+                observation = env.reset_time_limit()
+                remote.send(observation)
+            elif cmd == "get_total_reward":
+                total_reward = env.get_total_reward()
+                remote.send(total_reward)
             else:
                 raise NotImplementedError(f"`{cmd}` is not implemented in the worker")
         except EOFError:
@@ -123,8 +132,6 @@ class SubprocVecEnv(VecEnv):
         return _flatten_obs(obs, self.observation_space), np.stack(rews), np.stack(dones), infos
 
     def seed(self, seed: Optional[int] = None) -> List[Union[None, int]]:
-        if seed is None:
-            seed = np.random.randint(0, 2**32 - 1)
         for idx, remote in enumerate(self.remotes):
             remote.send(("seed", seed + idx))
         return [remote.recv() for remote in self.remotes]
@@ -134,6 +141,24 @@ class SubprocVecEnv(VecEnv):
             remote.send(("reset", None))
         obs = [remote.recv() for remote in self.remotes]
         return _flatten_obs(obs, self.observation_space)
+
+    def observe(self) -> VecEnvObs:
+        for remote in self.remotes:
+            remote.send(("observe", None))
+        obs = [remote.recv() for remote in self.remotes]
+        return _flatten_obs(obs, self.observation_space)
+
+    def reset_time_limit(self) -> VecEnvObs:
+        for remote in self.remotes:
+            remote.send(("reset_time_limit", None))
+        obs = [remote.recv() for remote in self.remotes]
+        return _flatten_obs(obs, self.observation_space)
+
+    def get_total_reward(self) ->VecEnvStepReturn:
+        for remote in self.remotes:
+            remote.send(("get_total_reward", None))
+        total_reward = [remote.recv() for remote in self.remotes]
+        return np.stack(total_reward)
 
     def close(self) -> None:
         if self.closed:
@@ -217,6 +242,6 @@ def _flatten_obs(obs: Union[List[VecEnvObs], Tuple[VecEnvObs]], space: gym.space
     elif isinstance(space, gym.spaces.Tuple):
         assert isinstance(obs[0], tuple), "non-tuple observation for environment with Tuple observation space"
         obs_len = len(space.spaces)
-        return tuple(np.stack([o[i] for o in obs]) for i in range(obs_len))
+        return tuple((np.stack([o[i] for o in obs]) for i in range(obs_len)))
     else:
         return np.stack(obs)
